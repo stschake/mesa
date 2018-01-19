@@ -96,6 +96,25 @@ vc4_job_create(struct vc4_context *vc4)
 }
 
 void
+vc4_get_seqno_fd(struct vc4_context *vc4, uint64_t seqno, int *out_fence_fd)
+{
+        struct drm_vc4_get_seqno_fd args;
+        int ret;
+
+        args.seqno = seqno;
+        args.out_fence_fd = -1;
+        args.pad64 = 0;
+
+        ret = drmIoctl(vc4->fd, DRM_IOCTL_VC4_GET_SEQNO_FD, &args);
+        if (ret) {
+                fprintf(stderr, "Failed to get fence fd for seqno.\n");
+                *out_fence_fd = -1;
+        } else {
+                *out_fence_fd = args.out_fence_fd;
+        }
+}
+
+void
 vc4_flush_jobs_writing_resource(struct vc4_context *vc4,
                                 struct pipe_resource *prsc)
 {
@@ -365,10 +384,20 @@ vc4_submit_setup_rcl_msaa_surface(struct vc4_job *job,
 }
 
 /**
- * Submits the job to the kernel and then reinitializes it.
+ * Wrapper omitting the fence fd parameters only needed on flush.
  */
 void
 vc4_job_submit(struct vc4_context *vc4, struct vc4_job *job)
+{
+        vc4_job_submit_fd(vc4, job, -1, NULL);
+}
+
+/**
+ * Submits the job to the kernel and then reinitializes it.
+ */
+void
+vc4_job_submit_fd(struct vc4_context *vc4, struct vc4_job *job,
+               int in_fence_fd, int *out_fence_fd)
 {
         if (!job->needs_flush)
                 goto done;
@@ -472,6 +501,14 @@ vc4_job_submit(struct vc4_context *vc4, struct vc4_job *job)
         }
         submit.flags |= job->flags;
 
+        if (in_fence_fd >= 0) {
+                submit.flags |= VC4_SUBMIT_CL_IMPORT_FENCE_FD;
+                submit.fence_fd = in_fence_fd;
+        }
+
+        if (out_fence_fd)
+                submit.flags |= VC4_SUBMIT_CL_EXPORT_FENCE_FD;
+
         if (!(vc4_debug & VC4_DEBUG_NORAST)) {
                 int ret;
 
@@ -487,6 +524,16 @@ vc4_job_submit(struct vc4_context *vc4, struct vc4_job *job)
                         warned = true;
                 } else if (!ret) {
                         vc4->last_emit_seqno = submit.seqno;
+                        if (out_fence_fd) {
+                                *out_fence_fd = submit.fence_fd;
+
+                                /* For later fences that had no rendering done
+                                 * since this job, we want to keep a copy.
+                                 */
+                                if (vc4->last_out_fence_fd >= 0)
+                                        close(vc4->last_out_fence_fd);
+                                vc4->last_out_fence_fd = dup(submit.fence_fd);
+                        }
                 }
         }
 

@@ -391,6 +391,9 @@ struct vc4_context {
         struct vc4_constbuf_stateobj constbuf[PIPE_SHADER_TYPES];
         struct vc4_vertexbuf_stateobj vertexbuf;
         /** @} */
+
+        int in_fence_fd;
+        int last_out_fence_fd;
 };
 
 struct vc4_rasterizer_state {
@@ -479,6 +482,8 @@ void vc4_write_uniforms(struct vc4_context *vc4,
                         struct vc4_texture_stateobj *texstate);
 
 void vc4_flush(struct pipe_context *pctx);
+void vc4_flush_fd(struct pipe_context *pctx, int in_fence_fd,
+                  int *out_fence_fd);
 void vc4_job_init(struct vc4_context *vc4);
 struct vc4_job *vc4_get_job(struct vc4_context *vc4,
                             struct pipe_surface *cbuf,
@@ -486,6 +491,9 @@ struct vc4_job *vc4_get_job(struct vc4_context *vc4,
 struct vc4_job *vc4_get_job_for_fbo(struct vc4_context *vc4);
 
 void vc4_job_submit(struct vc4_context *vc4, struct vc4_job *job);
+void vc4_job_submit_fd(struct vc4_context *vc4, struct vc4_job *job,
+                       int in_fence_fd, int *out_fence_fd);
+void vc4_get_seqno_fd(struct vc4_context *vc4, uint64_t seqno, int *out_fence_fd);
 void vc4_flush_jobs_writing_resource(struct vc4_context *vc4,
                                      struct pipe_resource *prsc);
 void vc4_flush_jobs_reading_resource(struct vc4_context *vc4,
@@ -503,4 +511,6 @@ const uint8_t *vc4_get_format_swizzle(enum pipe_format f);
 void vc4_init_query_functions(struct vc4_context *vc4);
 void vc4_blit(struct pipe_context *pctx, const struct pipe_blit_info *blit_info);
 void vc4_blitter_save(struct vc4_context *vc4);
+
+void vc4_fence_context_init(struct vc4_context *vc4);
 #endif /* VC4_CONTEXT_H */

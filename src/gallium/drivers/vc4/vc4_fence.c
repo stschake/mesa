@@ -34,14 +34,18 @@
  * fired off as our fence marker.
  */
 
+#include <libsync.h>
+
 #include "util/u_inlines.h"
 
 #include "vc4_screen.h"
 #include "vc4_bufmgr.h"
+#include "vc4_context.h"
 
 struct vc4_fence {
         struct pipe_reference reference;
         uint64_t seqno;
+        int fd;
 };
 
 static void
@@ -54,6 +58,8 @@ vc4_fence_reference(struct pipe_screen *pscreen,
         struct vc4_fence *old = *p;
 
         if (pipe_reference(&(*p)->reference, &f->reference)) {
+                if (old->fd >= 0)
+                        close(old->fd);
                 free(old);
         }
         *p = f;
@@ -68,11 +74,14 @@ vc4_fence_finish(struct pipe_screen *pscreen,
         struct vc4_screen *screen = vc4_screen(pscreen);
         struct vc4_fence *f = (struct vc4_fence *)pf;
 
+        /* Fence fds are linked to seqno through dma fence in the kernel
+         * so waiting here will also signal the fd if we have one.
+         */
         return vc4_wait_seqno(screen, f->seqno, timeout_ns, "fence wait");
 }
 
 struct vc4_fence *
-vc4_fence_create(struct vc4_screen *screen, uint64_t seqno)
+vc4_fence_create(struct vc4_screen *screen, uint64_t seqno, int fd)
 {
         struct vc4_fence *f = calloc(1, sizeof(*f));
 
@@ -81,13 +90,50 @@ vc4_fence_create(struct vc4_screen *screen, uint64_t seqno)
 
         pipe_reference_init(&f->reference, 1);
         f->seqno = seqno;
+        f->fd = fd;
 
         return f;
 }
 
+static void
+vc4_fence_create_fd(struct pipe_context *pctx, struct pipe_fence_handle **pf,
+                    int fd)
+{
+        struct vc4_fence **fence = (struct vc4_fence **)pf;
+        struct vc4_context *vc4 = vc4_context(pctx);
+
+        *fence = vc4_fence_create(vc4->screen, vc4->last_emit_seqno, dup(fd));
+}
+
+static void
+vc4_fence_server_sync(struct pipe_context *pctx,
+                      struct pipe_fence_handle *pfence)
+{
+        struct vc4_fence *fence = (struct vc4_fence *)pfence;
+        struct vc4_context *vc4 = vc4_context(pctx);
+        sync_accumulate("vc4", &vc4->in_fence_fd, fence->fd);
+}
+
+static int
+vc4_fence_get_fd(struct pipe_screen *screen, struct pipe_fence_handle *pfence)
+{
+        struct vc4_fence *fence = (struct vc4_fence *)pfence;
+        return dup(fence->fd);
+}
+
 void
-vc4_fence_init(struct vc4_screen *screen)
+vc4_fence_context_init(struct vc4_context* vc4)
+{
+        vc4->base.create_fence_fd = vc4_fence_create_fd;
+        vc4->base.fence_server_sync = vc4_fence_server_sync;
+        vc4->in_fence_fd = -1;
+        vc4->last_out_fence_fd = -1;
+}
+
+void
+vc4_fence_screen_init(struct vc4_screen *screen)
 {
         screen->base.fence_reference = vc4_fence_reference;
         screen->base.fence_finish = vc4_fence_finish;
+        screen->base.fence_get_fd = vc4_fence_get_fd;
 }

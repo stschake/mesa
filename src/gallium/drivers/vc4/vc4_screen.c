@@ -148,6 +148,10 @@ vc4_screen_get_param(struct pipe_screen *pscreen, enum pipe_cap param)
         case PIPE_CAP_TEXTURE_BARRIER:
                 return 1;
 
+        case PIPE_CAP_NATIVE_FENCE_FD:
+                return vc4_has_feature(screen,
+                                       DRM_VC4_PARAM_SUPPORTS_FENCE_FD);
+
         case PIPE_CAP_TILE_RASTER_ORDER:
                 return vc4_has_feature(screen,
                                        DRM_VC4_PARAM_SUPPORTS_FIXED_RCL_ORDER);
@@ -263,7 +267,6 @@ vc4_screen_get_param(struct pipe_screen *pscreen, enum pipe_cap param)
         case PIPE_CAP_VIEWPORT_SUBPIXEL_BITS:
         case PIPE_CAP_TGSI_ARRAY_COMPONENTS:
         case PIPE_CAP_TGSI_CAN_READ_OUTPUTS:
-        case PIPE_CAP_NATIVE_FENCE_FD:
         case PIPE_CAP_TGSI_FS_FBFETCH:
         case PIPE_CAP_TGSI_MUL_ZERO_WINS:
         case PIPE_CAP_DOUBLES:
@@ -702,7 +705,7 @@ vc4_screen_create(int fd, struct renderonly *ro)
 
         slab_create_parent(&screen->transfer_pool, sizeof(struct vc4_transfer), 16);
 
-        vc4_fence_init(screen);
+        vc4_fence_screen_init(screen);
 
         vc4_debug = debug_get_option_vc4_debug();
         if (vc4_debug & VC4_DEBUG_SHADERDB)
