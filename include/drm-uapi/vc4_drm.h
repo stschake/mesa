@@ -173,6 +173,8 @@ struct drm_vc4_submit_cl {
 #define VC4_SUBMIT_CL_FIXED_RCL_ORDER			(1 << 1)
 #define VC4_SUBMIT_CL_RCL_ORDER_INCREASING_X		(1 << 2)
 #define VC4_SUBMIT_CL_RCL_ORDER_INCREASING_Y		(1 << 3)
+#define VC4_SUBMIT_CL_IMPORT_FENCE_FD			(1 << 4)
+#define VC4_SUBMIT_CL_EXPORT_FENCE_FD			(1 << 5)
 	__u32 flags;
 
 	/* Returned value of the seqno of this render job (for the
@@ -183,11 +185,15 @@ struct drm_vc4_submit_cl {
 	/* ID of the perfmon to attach to this job. 0 means no perfmon. */
 	__u32 perfmonid;
 
-	/* Unused field to align this struct on 64 bits. Must be set to 0.
-	 * If one ever needs to add an u32 field to this struct, this field
-	 * can be used.
+	/* In/out fence fd.
+	 *
+	 * When the IMPORT_FENCE_FD flag is set, execution of this CL will
+	 * only begin once the specified fence fd is signaled.
+	 * When the EXPORT_FENCE_FD flag is set, a newly created fence fd
+	 * is returned in this field. The fence is signaled once this CL
+	 * has finished executing.
 	 */
-	__u32 pad2;
+	__s32 fence_fd;
 };
 
 /**
@@ -324,6 +330,7 @@ struct drm_vc4_get_hang_state {
 #define DRM_VC4_PARAM_SUPPORTS_FIXED_RCL_ORDER	6
 #define DRM_VC4_PARAM_SUPPORTS_MADVISE		7
 #define DRM_VC4_PARAM_SUPPORTS_PERFMON		8
+#define DRM_VC4_PARAM_SUPPORTS_FENCE_FD		9
 
 struct drm_vc4_get_param {
 	__u32 param;
