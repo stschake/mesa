@@ -509,6 +509,8 @@ struct vc4_job *vc4_get_job(struct vc4_context *vc4,
 struct vc4_job *vc4_get_job_for_fbo(struct vc4_context *vc4);
 
 void vc4_job_submit(struct vc4_context *vc4, struct vc4_job *job);
+void vc4_job_submit_fd(struct vc4_context *vc4, struct vc4_job *job,
+                       int in_fence_fd, int *out_fence_fd);
 void vc4_flush_jobs_writing_resource(struct vc4_context *vc4,
                                      struct pipe_resource *prsc);
 void vc4_flush_jobs_reading_resource(struct vc4_context *vc4,

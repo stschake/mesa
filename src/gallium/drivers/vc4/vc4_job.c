@@ -368,10 +368,20 @@ vc4_submit_setup_rcl_msaa_surface(struct vc4_job *job,
 }
 
 /**
- * Submits the job to the kernel and then reinitializes it.
+ * Wrapper omitting the fence fd parameters for vc4_job_submit_fd.
  */
 void
 vc4_job_submit(struct vc4_context *vc4, struct vc4_job *job)
+{
+        return vc4_job_submit_fd(vc4, job, -1, NULL);
+}
+
+/**
+ * Submits the job to the kernel and then reinitializes it.
+ */
+void
+vc4_job_submit_fd(struct vc4_context *vc4, struct vc4_job *job,
+                  int in_fence_fd, int *out_fence_fd)
 {
         if (!job->needs_flush)
                 goto done;
@@ -477,6 +487,15 @@ vc4_job_submit(struct vc4_context *vc4, struct vc4_job *job)
         }
         submit.flags |= job->flags;
 
+        if (in_fence_fd >= 0) {
+                submit.fence_fd = in_fence_fd;
+                submit.flags |= VC4_SUBMIT_CL_IMPORT_FENCE_FD;
+        }
+
+        /* The kernel will return our fence fd in submit.fence_fd */
+        if (out_fence_fd)
+                submit.flags |= VC4_SUBMIT_CL_EXPORT_FENCE_FD;
+
         if (!(vc4_debug & VC4_DEBUG_NORAST)) {
                 int ret;
 
@@ -494,6 +513,8 @@ vc4_job_submit(struct vc4_context *vc4, struct vc4_job *job)
                         vc4->last_emit_seqno = submit.seqno;
                         if (job->perfmon)
                                 job->perfmon->last_seqno = submit.seqno;
+                        if (out_fence_fd)
+                                *out_fence_fd = submit.fence_fd;
                 }
         }
 
