@@ -375,6 +375,9 @@ struct vc4_context {
         /** Seqno of the last CL flush's job. */
         uint64_t last_emit_seqno;
 
+        int in_fence_fd;
+        int last_out_fence_fd;
+
         struct u_upload_mgr *uploader;
 
         struct pipe_shader_state *yuv_linear_blit_vs;
@@ -528,4 +531,6 @@ const uint8_t *vc4_get_format_swizzle(enum pipe_format f);
 void vc4_init_query_functions(struct vc4_context *vc4);
 void vc4_blit(struct pipe_context *pctx, const struct pipe_blit_info *blit_info);
 void vc4_blitter_save(struct vc4_context *vc4);
+
+void vc4_fence_context_init(struct vc4_context *vc4);
 #endif /* VC4_CONTEXT_H */

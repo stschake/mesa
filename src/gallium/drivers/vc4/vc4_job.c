@@ -513,8 +513,18 @@ vc4_job_submit_fd(struct vc4_context *vc4, struct vc4_job *job,
                         vc4->last_emit_seqno = submit.seqno;
                         if (job->perfmon)
                                 job->perfmon->last_seqno = submit.seqno;
-                        if (out_fence_fd)
+                        if (out_fence_fd) {
                                 *out_fence_fd = submit.fence_fd;
+
+                                /* We are sometimes required to produce a
+                                 * fence fd even if no jobs are queued.
+                                 * Keep a reference to a previous fence fd
+                                 * around for this purpose.
+                                 */
+                                if (vc4->last_out_fence_fd)
+                                        close(vc4->last_out_fence_fd);
+                                vc4->last_out_fence_fd = dup(submit.fence_fd);
+                        }
                 }
         }
 

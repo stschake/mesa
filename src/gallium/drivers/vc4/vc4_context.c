@@ -37,16 +37,40 @@
 #include "vc4_context.h"
 #include "vc4_resource.h"
 
+static void
+vc4_flush_fd(struct pipe_context *pctx, int in_fence_fd, int *out_fence_fd)
+{
+        struct vc4_context *vc4 = vc4_context(pctx);
+        struct hash_entry *entry;        
+
+	/* vc4 is special in that it has no ring buffer to queue CLs.
+         * So instead of submitting one big CL job come flush, we might have
+         * many. Since there is only up to one of in/out fence fd each, we
+         * submit the in fd on the first job and obtain the out fd for the
+         * last one. The kernel guarantees jobs are executed in the order we
+         * submit them since the seqno fences depend on that.
+         */
+        hash_table_foreach(vc4->jobs, entry) {
+                struct vc4_job *job = entry->data;
+                bool needs_flush = job->needs_flush;
+
+                /* Is this the last queued job? */
+                if (_mesa_hash_table_next_entry(vc4->jobs, entry) == NULL) {
+                        vc4_job_submit_fd(vc4, job, in_fence_fd, out_fence_fd);
+                } else {
+                        vc4_job_submit_fd(vc4, job, in_fence_fd, NULL);
+                }
+
+                /* Don't invoke the wait path in future submits. */
+                if (needs_flush)
+                        in_fence_fd = -1;
+        }
+}
+
 void
 vc4_flush(struct pipe_context *pctx)
 {
-        struct vc4_context *vc4 = vc4_context(pctx);
-
-        struct hash_entry *entry;
-        hash_table_foreach(vc4->jobs, entry) {
-                struct vc4_job *job = entry->data;
-                vc4_job_submit(vc4, job);
-        }
+        vc4_flush_fd(pctx, -1, NULL);
 }
 
 static void
@@ -54,13 +78,25 @@ vc4_pipe_flush(struct pipe_context *pctx, struct pipe_fence_handle **fence,
                unsigned flags)
 {
         struct vc4_context *vc4 = vc4_context(pctx);
+        int out_fence_fd = -1;
 
-        vc4_flush(pctx);
+        if (flags & PIPE_FLUSH_FENCE_FD) {
+                vc4_flush_fd(pctx, vc4->in_fence_fd, &out_fence_fd);
+        } else {
+                vc4_flush_fd(pctx, vc4->in_fence_fd, NULL);
+        }
 
         if (fence) {
+                if (flags & PIPE_FLUSH_FENCE_FD && out_fence_fd == -1) {
+                        out_fence_fd = vc4->last_out_fence_fd;
+                        /* The pipe fence takes ownership of the fd. */
+                        vc4->last_out_fence_fd = dup(out_fence_fd);
+                }
+
                 struct pipe_screen *screen = pctx->screen;
                 struct vc4_fence *f = vc4_fence_create(vc4->screen,
-                                                       vc4->last_emit_seqno);
+                                                       vc4->last_emit_seqno,
+                                                       out_fence_fd);
                 screen->fence_reference(screen, fence, NULL);
                 *fence = (struct pipe_fence_handle *)f;
         }
@@ -124,6 +160,11 @@ vc4_context_destroy(struct pipe_context *pctx)
 
         vc4_program_fini(pctx);
 
+        if (vc4->in_fence_fd >= 0)
+                close(vc4->in_fence_fd);
+        if (vc4->last_out_fence_fd >= 0)
+                close(vc4->last_out_fence_fd);
+
         ralloc_free(vc4);
 }
 
@@ -157,6 +198,7 @@ vc4_context_create(struct pipe_screen *pscreen, void *priv, unsigned flags)
         vc4_query_init(pctx);
         vc4_resource_context_init(pctx);
 
+        vc4_fence_context_init(vc4);
         vc4_job_init(vc4);
 
         vc4->fd = screen->fd;
