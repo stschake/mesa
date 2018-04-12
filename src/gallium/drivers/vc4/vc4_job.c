@@ -368,10 +368,22 @@ vc4_submit_setup_rcl_msaa_surface(struct vc4_job *job,
 }
 
 /**
- * Submits the job to the kernel and then reinitializes it.
+ * Wrapper for vc4_job_submit_sync omitting the rarely needed syncobj import
+ * parameter.
  */
 void
 vc4_job_submit(struct vc4_context *vc4, struct vc4_job *job)
+{
+        vc4_job_submit_sync(vc4, job, NULL);
+}
+
+/**
+ * Submits the job to the kernel and then reinitializes it, optionally passing
+ * a syncobj that will be waited on before job execution.
+ */
+void
+vc4_job_submit_sync(struct vc4_context *vc4, struct vc4_job *job,
+                    uint32_t* in_sync)
 {
         if (!job->needs_flush)
                 goto done;
@@ -480,6 +492,16 @@ vc4_job_submit(struct vc4_context *vc4, struct vc4_job *job)
         if (vc4->screen->has_syncobj) {
                 submit.out_sync = vc4->job_syncobj;
                 submit.flags |= VC4_SUBMIT_CL_EXPORT_SYNCOBJ;
+        }
+
+        if (in_sync) {
+                /* If the kernel has no syncobj support, we should never try
+                 * to import one as it breaks backwards compatibility.
+                 */
+                assert(vc4->screen->has_syncobj);
+
+                submit.in_sync = *in_sync;
+                submit.flags |= VC4_SUBMIT_CL_IMPORT_SYNCOBJ;
         }
 
         if (!(vc4_debug & VC4_DEBUG_NORAST)) {
