@@ -37,16 +37,22 @@
 #include "vc4_context.h"
 #include "vc4_resource.h"
 
-void
-vc4_flush(struct pipe_context *pctx)
+static void
+vc4_flush_sync(struct pipe_context *pctx, uint32_t *in_sync)
 {
         struct vc4_context *vc4 = vc4_context(pctx);
 
         struct hash_entry *entry;
         hash_table_foreach(vc4->jobs, entry) {
                 struct vc4_job *job = entry->data;
-                vc4_job_submit(vc4, job);
+                vc4_job_submit_sync(vc4, job, in_sync);
         }
+}
+
+void
+vc4_flush(struct pipe_context *pctx)
+{
+        vc4_flush_sync(pctx, NULL);
 }
 
 static void
@@ -55,12 +61,30 @@ vc4_pipe_flush(struct pipe_context *pctx, struct pipe_fence_handle **fence,
 {
         struct vc4_context *vc4 = vc4_context(pctx);
 
-        vc4_flush(pctx);
+        if (vc4->in_fence_fd >= 0) {
+                /* This replaces the fence in the syncobj. */
+                drmSyncobjImportSyncFile(vc4->fd, vc4->in_syncobj,
+                                         vc4->in_fence_fd);
+                close(vc4->in_fence_fd);
+                vc4->in_fence_fd = -1;
+                vc4_flush_sync(pctx, &vc4->in_syncobj);
+        } else {
+                vc4_flush(pctx);
+        }
 
         if (fence) {
                 struct pipe_screen *screen = pctx->screen;
+                int fd = -1;
+
+                if (flags & PIPE_FLUSH_FENCE_FD) {
+                        /* The vc4_fence takes ownership of the returned fd. */
+                        drmSyncobjExportSyncFile(vc4->fd, vc4->job_syncobj,
+                                                 &fd);
+                }
+
                 struct vc4_fence *f = vc4_fence_create(vc4->screen,
-                                                       vc4->last_emit_seqno);
+                                                       vc4->last_emit_seqno,
+                                                       fd);
                 screen->fence_reference(screen, fence, NULL);
                 *fence = (struct pipe_fence_handle *)f;
         }
@@ -124,8 +148,12 @@ vc4_context_destroy(struct pipe_context *pctx)
 
         vc4_program_fini(pctx);
 
-        if (vc4->screen->has_syncobj)
+        if (vc4->screen->has_syncobj) {
                 drmSyncobjDestroy(vc4->fd, vc4->job_syncobj);
+                drmSyncobjDestroy(vc4->fd, vc4->in_syncobj);
+        }
+        if (vc4->in_fence_fd >= 0)
+                close(vc4->in_fence_fd);
 
         ralloc_free(vc4);
 }
@@ -161,9 +189,16 @@ vc4_context_create(struct pipe_screen *pscreen, void *priv, unsigned flags)
         vc4_query_init(pctx);
         vc4_resource_context_init(pctx);
 
+        vc4_job_init(vc4);
+        vc4_fence_context_init(vc4);
+
         vc4->fd = screen->fd;
 
         err = vc4_job_init(vc4);
+        if (err)
+                goto fail;
+
+        err = vc4_fence_context_init(vc4);
         if (err)
                 goto fail;
 
