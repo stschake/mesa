@@ -683,6 +683,8 @@ vc4_screen_create(int fd, struct renderonly *ro)
                 vc4_has_feature(screen, DRM_VC4_PARAM_SUPPORTS_MADVISE);
         screen->has_perfmon_ioctl =
                 vc4_has_feature(screen, DRM_VC4_PARAM_SUPPORTS_PERFMON);
+        screen->has_syncobj =
+                vc4_has_feature(screen, DRM_VC4_PARAM_SUPPORTS_SYNCOBJ);
 
         if (!vc4_get_chip_info(screen))
                 goto fail;
