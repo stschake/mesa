@@ -1040,6 +1040,7 @@ _drm_nouveau_ver = '2.4.66'
 _drm_etnaviv_ver = '2.4.89'
 _drm_freedreno_ver = '2.4.91'
 _drm_intel_ver = '2.4.75'
+_drm_vc4_ver = '2.4.89'
 _drm_ver = '2.4.75'
 
 _libdrm_checks = [
@@ -1050,6 +1051,7 @@ _libdrm_checks = [
   ['nouveau', (with_gallium_nouveau or with_dri_nouveau)],
   ['etnaviv', with_gallium_etnaviv],
   ['freedreno', with_gallium_freedreno],
+  ['vc4', with_gallium_vc4]
 ]
 
 # Loop over the enables versions and get the highest libdrm requirement for all
